@@ -157,11 +157,14 @@ def generate_dashboard_html(csv_path, config_path, output_path):
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button onclick="location.reload()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-xl transition flex items-center gap-1.5 shadow-sm">
-          🔄 重新整理網頁
+        <a href="https://github.com/dayiteatw-cell/flight-price-tracker/actions/workflows/flight_tracker.yml" target="_blank" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs md:text-sm font-semibold rounded-xl transition flex items-center gap-1.5 shadow-sm">
+          ⚙️ 雲端輸入新日期爬蟲 ↗
+        </a>
+        <button onclick="location.reload()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs md:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shadow-sm">
+          🔄 重新整理
         </button>
-        <button onclick="exportFilteredCSV()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl transition flex items-center gap-1.5 shadow-sm">
-          📥 匯出當前視圖 CSV
+        <button onclick="exportFilteredCSV()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs md:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shadow-sm">
+          📥 匯出 CSV
         </button>
       </div>
     </header>
@@ -185,6 +188,36 @@ def generate_dashboard_html(csv_path, config_path, output_path):
       <a href="https://www.evaair.com/" target="_blank" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl text-center whitespace-nowrap transition shadow-sm">
         前往長榮官網 ↗
       </a>
+    </div>
+
+    <!-- 基準比價日期即時切換列 (使用者自選切換) -->
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 md:p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xl flex-shrink-0 shadow-inner">
+          🎯
+        </div>
+        <div>
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+            <span>基準目標日期即時切換</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">免爬蟲・即時切換</span>
+          </div>
+          <div class="text-sm font-bold text-slate-800 flex items-center gap-2 mt-0.5">
+            <span>當前分析基準：</span>
+            <span id="current-selected-date-badge" class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold shadow-sm">
+              載入中...
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <label for="base-date-select" class="text-xs font-semibold text-slate-600">切換比價日期：</label>
+        <select id="base-date-select" onchange="onBaseDateChange(this.value)" class="text-xs md:text-sm border border-slate-300 rounded-xl px-3 py-2 bg-slate-50 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm">
+          <!-- 由 JS 動態生成所有可選日期選項 -->
+        </select>
+        <button onclick="resetBaseDate()" title="回到最初設定的預設基準目標" class="px-3 py-2 text-xs text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium transition">
+          ↺ 重設為預設
+        </button>
+      </div>
     </div>
 
     <!-- 核心指標統計卡片 -->
@@ -443,13 +476,102 @@ def generate_dashboard_html(csv_path, config_path, output_path):
     let currentPage = 1;
     const pageSize = 15;
 
+    // 預設基準日期設定
+    const defaultDep = (CONFIG.flight_dates && CONFIG.flight_dates.base_target) ? (CONFIG.flight_dates.base_target.depart_date || CONFIG.flight_dates.base_target.departure_date || "2026-12-15") : "2026-12-15";
+    const defaultRet = (CONFIG.flight_dates && CONFIG.flight_dates.base_target) ? (CONFIG.flight_dates.base_target.return_date || "2027-01-10") : "2027-01-10";
+    const DEFAULT_TARGET_DATE_STR = `${{defaultDep}} 往返 ${{defaultRet}}`;
+    let CURRENT_TARGET_DATE_STR = DEFAULT_TARGET_DATE_STR;
+
     // 初始化頁面
     window.addEventListener("DOMContentLoaded", () => {{
-      renderSummaryCards();
-      renderBarChart();
+      initBaseDateSelector();
+      renderSummaryCards(CURRENT_TARGET_DATE_STR);
+      renderBarChart(CURRENT_TARGET_DATE_STR);
       renderTrendChart();
       applyFilters();
     }});
+
+    // 初始化基準日期下拉選單
+    function initBaseDateSelector() {{
+      const selector = document.getElementById("base-date-select");
+      if (!selector || !RAW_DATA || RAW_DATA.length === 0) return;
+
+      const latestTime = RAW_DATA[RAW_DATA.length - 1].query_time;
+      const latestRecords = RAW_DATA.filter(d => d.query_time === latestTime);
+
+      // 提取最新一次查詢的所有來回唯一日期
+      const dateMap = new Map();
+      latestRecords.forEach(d => {{
+        if (d.trip_type && d.trip_type.includes("來回") && d.flight_date && d.price > 0) {{
+          if (!dateMap.has(d.flight_date)) {{
+            dateMap.set(d.flight_date, []);
+          }}
+          dateMap.get(d.flight_date).push(d.price);
+        }}
+      }});
+
+      // 找出預設基準日期的最低價（供計算現省）
+      const defaultPrices = dateMap.get(DEFAULT_TARGET_DATE_STR) || [];
+      const defaultMinPrice = defaultPrices.length > 0 ? Math.min(...defaultPrices) : 999999;
+
+      let optionsHtml = "";
+      const dateKeys = Array.from(dateMap.keys());
+
+      // 確保 DEFAULT_TARGET_DATE_STR 排在第一位
+      dateKeys.sort((a, b) => {{
+        if (a === DEFAULT_TARGET_DATE_STR) return -1;
+        if (b === DEFAULT_TARGET_DATE_STR) return 1;
+        return a.localeCompare(b);
+      }});
+
+      dateKeys.forEach(dateStr => {{
+        const prices = dateMap.get(dateStr);
+        const minP = Math.min(...prices);
+        let tag = "";
+        if (dateStr === DEFAULT_TARGET_DATE_STR) {{
+          tag = "🎯 預設基準目標";
+        }} else if (minP < defaultMinPrice) {{
+          const diff = defaultMinPrice - minP;
+          tag = `💡 最平價 (現省 NT$ ${{diff.toLocaleString()}})`;
+        }} else {{
+          tag = "💡 彈性比價";
+        }}
+
+        const selected = (dateStr === CURRENT_TARGET_DATE_STR) ? "selected" : "";
+        optionsHtml += `<option value="${{dateStr}}" ${{selected}}>${{dateStr}} ｜ 最低 ${{formatMoney(minP)}} (${{tag}})</option>`;
+      }});
+
+      selector.innerHTML = optionsHtml;
+      updateSelectedDateBadge(CURRENT_TARGET_DATE_STR);
+    }}
+
+    function updateSelectedDateBadge(dateStr) {{
+      const badge = document.getElementById("current-selected-date-badge");
+      if (badge) {{
+        badge.textContent = dateStr;
+      }}
+    }}
+
+    // 當使用者在網頁上下拉切換基準日期時
+    function onBaseDateChange(selectedDate) {{
+      if (!selectedDate) return;
+      CURRENT_TARGET_DATE_STR = selectedDate;
+      updateSelectedDateBadge(selectedDate);
+      renderSummaryCards(CURRENT_TARGET_DATE_STR);
+      renderBarChart(CURRENT_TARGET_DATE_STR);
+    }}
+
+    // 重設為預設基準目標
+    function resetBaseDate() {{
+      CURRENT_TARGET_DATE_STR = DEFAULT_TARGET_DATE_STR;
+      const selector = document.getElementById("base-date-select");
+      if (selector) {{
+        selector.value = DEFAULT_TARGET_DATE_STR;
+      }}
+      updateSelectedDateBadge(DEFAULT_TARGET_DATE_STR);
+      renderSummaryCards(DEFAULT_TARGET_DATE_STR);
+      renderBarChart(DEFAULT_TARGET_DATE_STR);
+    }}
 
     // 格式化千分位
     function formatMoney(num) {{
@@ -458,34 +580,32 @@ def generate_dashboard_html(csv_path, config_path, output_path):
     }}
 
     // 渲染指標卡片
-    function renderSummaryCards() {{
+    function renderSummaryCards(targetDate) {{
       if (!RAW_DATA || RAW_DATA.length === 0) return;
+      const tDate = targetDate || CURRENT_TARGET_DATE_STR;
 
       const latestTime = RAW_DATA[RAW_DATA.length - 1].query_time;
       document.getElementById("header-last-updated").textContent = `最新查詢時間：${{latestTime}}`;
 
-      // 設定動態副標
-      const depDate = (CONFIG.flight_dates && CONFIG.flight_dates.base_target) ? CONFIG.flight_dates.base_target.departure_date : "2026-12-15";
-      const retDate = (CONFIG.flight_dates && CONFIG.flight_dates.base_target) ? CONFIG.flight_dates.base_target.return_date : "2027-01-10";
-      const subTitle = document.getElementById("bar-chart-subtitle");
-      if (subTitle) {{
-        subTitle.textContent = `以 ${{depDate}} 往返 ${{retDate}} 直飛來回為基準`;
-      }}
-
       // 最新一批查詢記錄
       const latestRecords = RAW_DATA.filter(d => d.query_time === latestTime);
 
-      // 基準目標來回航班 (排除彈性比價)
-      const targetRTs = latestRecords.filter(d => (d.date_type === "🎯基準目標" || !d.date_type.includes("彈性")) && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
+      // 當前所選日期的來回航班 (依票價升序排序)
+      let targetRTs = latestRecords.filter(d => d.flight_date === tDate && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
       
-      // 彈性比價來回航班
-      const flexRTs = latestRecords.filter(d => (d.date_type === "💡彈性比價" || d.date_type.includes("彈性")) && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
+      // 若當前所選精確匹配無資料，則 fallback 基準目標
+      if (targetRTs.length === 0) {{
+        targetRTs = latestRecords.filter(d => (d.date_type === "🎯基準目標" || !d.date_type.includes("彈性")) && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
+      }}
 
-      // 全場基準目標最低來回
+      // 其他日期的來回航班 (用於計算彈性省錢推薦)
+      const otherRTs = latestRecords.filter(d => d.flight_date !== tDate && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
+
+      // 全場所選基準最低來回
       if (targetRTs.length > 0) {{
         const lowest = targetRTs[0];
         document.getElementById("stat-min-rt").textContent = formatMoney(lowest.price);
-        document.getElementById("stat-min-rt-airline").textContent = `${{lowest.airline}} (基準 ${{lowest.flight_date}})`;
+        document.getElementById("stat-min-rt-airline").textContent = `${{lowest.airline}} (${{tDate}})`;
       }} else if (latestRecords.length > 0) {{
         const anyRT = latestRecords.filter(d => d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
         if (anyRT.length > 0) {{
@@ -508,52 +628,54 @@ def generate_dashboard_html(csv_path, config_path, output_path):
         }}
       }}
 
-      // 頂部彈性省錢洞察動態更新 (Banner)
-      updateInsightBanner(targetRTs, flexRTs);
+      // 頂部省錢洞察動態更新 (Banner)
+      updateInsightBanner(targetRTs, otherRTs, tDate);
 
-      // 各航司最新即時數據 (以最新批次中的基準目標為準，取最低票價)
-      updateAirlineStat("長榮", "stat-eva-price", "stat-eva-flight", "stat-eva-one-way", latestRecords);
-      updateAirlineStat("中華", "stat-ci-price", "stat-ci-flight", "stat-ci-one-way", latestRecords);
-      updateAirlineStat("星宇", "stat-jx-price", "stat-jx-flight", "stat-jx-one-way", latestRecords);
+      // 各航司即時數據 (以所選基準日期為準，取最低票價)
+      updateAirlineStat("長榮", "stat-eva-price", "stat-eva-flight", "stat-eva-one-way", latestRecords, tDate);
+      updateAirlineStat("中華", "stat-ci-price", "stat-ci-flight", "stat-ci-one-way", latestRecords, tDate);
+      updateAirlineStat("星宇", "stat-jx-price", "stat-jx-flight", "stat-jx-one-way", latestRecords, tDate);
     }}
 
     // 動態更新頂部推薦情報
-    function updateInsightBanner(targetRTs, flexRTs) {{
+    function updateInsightBanner(targetRTs, otherRTs, tDate) {{
       const bTitle = document.getElementById("banner-title");
       const bBadge = document.getElementById("banner-badge");
       const bDesc = document.getElementById("banner-desc");
       if (!bTitle || !bBadge || !bDesc) return;
 
       const baseLowest = targetRTs && targetRTs.length > 0 ? targetRTs[0] : null;
-      const flexLowest = flexRTs && flexRTs.length > 0 ? flexRTs[0] : null;
+      const otherLowest = otherRTs && otherRTs.length > 0 ? otherRTs[0] : null;
 
-      if (baseLowest && flexLowest && flexLowest.price < baseLowest.price) {{
-        const saved = baseLowest.price - flexLowest.price;
-        bTitle.textContent = `最佳彈性日期省錢洞察：${{flexLowest.flight_date}} 大特惠`;
+      if (baseLowest && otherLowest && otherLowest.price < baseLowest.price) {{
+        const saved = baseLowest.price - otherLowest.price;
+        bTitle.textContent = `最佳省錢洞察：${{otherLowest.flight_date}} 更便宜！`;
         bBadge.textContent = `現省 NT$ ${{saved.toLocaleString()}}`;
-        bDesc.innerHTML = `原基準目標（${{baseLowest.flight_date}}）最低為 <strong>${{formatMoney(baseLowest.price)}}</strong>（${{baseLowest.airline}}），若彈性調整為 <strong>${{flexLowest.flight_date}}</strong>，${{flexLowest.airline}}直飛來回總價只要 <strong>${{formatMoney(flexLowest.price)}}</strong>！班次：${{flexLowest.itinerary}}`;
+        bDesc.innerHTML = `您選擇的（<strong>${{baseLowest.flight_date}}</strong>）最低為 <strong>${{formatMoney(baseLowest.price)}}</strong>（${{baseLowest.airline}}），若彈性調整為 <strong>${{otherLowest.flight_date}}</strong>，${{otherLowest.airline}}來回只要 <strong>${{formatMoney(otherLowest.price)}}</strong>！班次：${{otherLowest.itinerary}}`;
       }} else if (baseLowest) {{
-        bTitle.textContent = `航情重點洞察：基準目標即為目前最低票價！`;
+        bTitle.textContent = `航情重點洞察：您選擇的日期即為目前最低買點！`;
         bBadge.textContent = `最佳買點`;
-        bDesc.innerHTML = `目前基準目標（<strong>${{baseLowest.flight_date}}</strong>）的 <strong>${{formatMoney(baseLowest.price)}}</strong>（${{baseLowest.airline}}）為當前台美直飛最優票價。`;
+        bDesc.innerHTML = `當前選擇的（<strong>${{baseLowest.flight_date}}</strong>）<strong>${{formatMoney(baseLowest.price)}}</strong>（${{baseLowest.airline}}）為當前台美直飛最優票價。`;
       }}
     }}
 
-    function updateAirlineStat(keyword, priceId, flightId, oneWayId, latestRecords) {{
+    function updateAirlineStat(keyword, priceId, flightId, oneWayId, latestRecords, targetDate) {{
       const records = latestRecords || RAW_DATA;
-      // 基準目標來回：依票價升序排序，取最低者
-      const targetRTs = records.filter(d => d.airline && d.airline.includes(keyword) && (d.date_type === "🎯基準目標" || !d.date_type.includes("彈性")) && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
+      const tDate = targetDate || CURRENT_TARGET_DATE_STR;
+
+      // 優先尋找所選日期的該航司來回
+      const targetRTs = records.filter(d => d.airline && d.airline.includes(keyword) && d.flight_date === tDate && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
 
       if (targetRTs.length > 0) {{
         const best = targetRTs[0];
         document.getElementById(priceId).textContent = formatMoney(best.price);
         document.getElementById(flightId).textContent = best.itinerary ? best.itinerary.split("｜")[0] : best.flight_date;
       }} else {{
-        // 若基準目標售罄，查詢彈性日
+        // 若該日期無直飛，嘗試尋找其他日期
         const anyRTs = records.filter(d => d.airline && d.airline.includes(keyword) && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((a, b) => a.price - b.price);
         if (anyRTs.length > 0) {{
-          document.getElementById(priceId).textContent = formatMoney(anyRTs[0].price);
-          document.getElementById(flightId).textContent = `(彈性) ${{anyRTs[0].flight_date}}`;
+          document.getElementById(priceId).textContent = "當日無直飛";
+          document.getElementById(flightId).textContent = `其他日最低 ${{formatMoney(anyRTs[0].price)}}`;
         }} else {{
           document.getElementById(priceId).textContent = "來回客滿";
           document.getElementById(flightId).textContent = "直飛無空位";
@@ -569,10 +691,16 @@ def generate_dashboard_html(csv_path, config_path, output_path):
       }}
     }}
 
-    // 渲染各航司橫向長條圖 (以最新一批查詢的基準目標最低價為準)
-    function renderBarChart() {{
+    // 渲染各航司橫向長條圖 (以當前所選基準日期的最低價為準)
+    function renderBarChart(targetDate) {{
       const container = document.getElementById("bar-chart-container");
       if (!container) return;
+
+      const tDate = targetDate || CURRENT_TARGET_DATE_STR;
+      const subTitle = document.getElementById("bar-chart-subtitle");
+      if (subTitle) {{
+        subTitle.textContent = `以 ${{tDate}} 直飛來回為基準`;
+      }}
 
       const latestTime = RAW_DATA && RAW_DATA.length > 0 ? RAW_DATA[RAW_DATA.length - 1].query_time : null;
       const latestRecords = latestTime ? RAW_DATA.filter(d => d.query_time === latestTime) : RAW_DATA;
@@ -587,22 +715,22 @@ def generate_dashboard_html(csv_path, config_path, output_path):
       const maxPrice = 80000;
 
       airlines.forEach(a => {{
-        // 取得該航司在最新查詢中的基準目標最低來回票價
-        const targetMatches = latestRecords.filter(d => d.airline && d.airline.includes(a.key) && (d.date_type === "🎯基準目標" || !d.date_type.includes("彈性")) && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((x, y) => x.price - y.price);
+        // 取得該航司在當前所選日期中的最低來回票價
+        const targetMatches = latestRecords.filter(d => d.airline && d.airline.includes(a.key) && d.flight_date === tDate && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((x, y) => x.price - y.price);
 
         let price = targetMatches.length > 0 ? targetMatches[0].price : 0;
         let percent = price > 0 ? Math.min(100, Math.round((price / maxPrice) * 100)) : 0;
-        let priceText = price > 0 ? formatMoney(price) : "來回客滿";
+        let priceText = price > 0 ? formatMoney(price) : "當日無直飛";
 
-        // 檢查該航司是否有更平價的「彈性日期」推薦
-        const flexMatches = latestRecords.filter(d => d.airline && d.airline.includes(a.key) && (d.date_type === "💡彈性比價" || d.date_type.includes("彈性")) && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((x, y) => x.price - y.price);
+        // 檢查該航司在其他日期是否有更平價的推薦
+        const otherMatches = latestRecords.filter(d => d.airline && d.airline.includes(a.key) && d.flight_date !== tDate && d.trip_type && d.trip_type.includes("來回") && d.price > 0).sort((x, y) => x.price - y.price);
 
         let flexTip = "";
-        if (flexMatches.length > 0 && price > 0 && flexMatches[0].price < price) {{
-          const saved = price - flexMatches[0].price;
+        if (otherMatches.length > 0 && price > 0 && otherMatches[0].price < price) {{
+          const saved = price - otherMatches[0].price;
           flexTip = `
             <div class="mt-1 flex items-center justify-between text-[11px] text-emerald-700 bg-emerald-50/80 px-2 py-0.5 rounded-md border border-emerald-100">
-              <span>💡 彈性最平價：<strong>${{formatMoney(flexMatches[0].price)}}</strong> (${{flexMatches[0].flight_date.replace(" 往返 ", " ⇋ ")}})</span>
+              <span>💡 該航司其他日最平價：<strong>${{formatMoney(otherMatches[0].price)}}</strong> (${{otherMatches[0].flight_date.replace(" 往返 ", " ⇋ ")}})</span>
               <span class="font-bold text-emerald-800">現省 NT$ ${{saved.toLocaleString()}}</span>
             </div>
           `;

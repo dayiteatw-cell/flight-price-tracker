@@ -74,6 +74,46 @@ def load_config():
         cfg.setdefault("line_settings", {})["user_id"] = env_uid.strip()
         cfg["line_settings"]["enabled"] = True
 
+    # 支援 GitHub Actions 手動輸入參數覆蓋 (workflow_dispatch inputs)
+    override_dep = os.environ.get("OVERRIDE_DEP_DATE", "").strip()
+    override_ret = os.environ.get("OVERRIDE_RET_DATE", "").strip()
+    override_threshold = os.environ.get("OVERRIDE_THRESHOLD", "").strip()
+    override_flex = os.environ.get("OVERRIDE_FLEXIBLE", "").strip()
+
+    has_override = False
+    if override_dep:
+        cfg.setdefault("flight_dates", {}).setdefault("base_target", {})["depart_date"] = override_dep
+        cfg.setdefault("search_settings", {})["depart_date"] = override_dep
+        has_override = True
+        print(f"🔧 [雲端自訂參數] 去程基準目標日期更新為：{override_dep}")
+    if override_ret:
+        cfg.setdefault("flight_dates", {}).setdefault("base_target", {})["return_date"] = override_ret
+        cfg.setdefault("search_settings", {})["return_date"] = override_ret
+        has_override = True
+        print(f"🔧 [雲端自訂參數] 回程基準目標日期更新為：{override_ret}")
+    if override_threshold and override_threshold.isdigit():
+        new_th = int(override_threshold)
+        cfg.setdefault("alert_settings", {})["price_alert_threshold"] = new_th
+        has_override = True
+        print(f"🔧 [雲端自訂參數] 警報門檻金額更新為：NT$ {new_th:,}")
+    if override_flex:
+        is_flex = override_flex.lower() in ("true", "1", "yes")
+        cfg.setdefault("flight_dates", {}).setdefault("flexible_scan", {})["enabled"] = is_flex
+        has_override = True
+        print(f"🔧 [雲端自訂參數] 前後彈性比價掃描：{'啟用' if is_flex else '關閉'}")
+
+    # 若有自訂參數覆蓋，儲存更新至 config.json，使後續排程與網頁預設持續生效
+    if has_override:
+        try:
+            clean_cfg = json.loads(json.dumps(cfg))
+            clean_cfg.get("line_settings", {})["channel_access_token"] = ""
+            clean_cfg.get("line_settings", {})["user_id"] = ""
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(clean_cfg, f, ensure_ascii=False, indent=2)
+            print("💾 已同步將最新自訂設定持久化儲存至 config.json！")
+        except Exception as e:
+            print(f"⚠️ 寫入 config.json 略過：{e}")
+
     return cfg
 
 def parse_flight_dates(config):

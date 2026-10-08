@@ -6,7 +6,28 @@ on:
     - cron: '0 17 * * *'
     # 每日上午 09:00 台灣時間 (UTC+8) -> 01:00 UTC
     - cron: '0 1 * * *'
-  workflow_dispatch: # 支援在 GitHub 網頁上隨時手動點擊「Run workflow」
+  workflow_dispatch:
+    inputs:
+      departure_date:
+        description: '🛫 去程日期 (YYYY-MM-DD，留空維持原設定)'
+        required: false
+        default: '2026-12-15'
+        type: string
+      return_date:
+        description: '🛬 回程日期 (YYYY-MM-DD，留空維持原設定)'
+        required: false
+        default: '2027-01-10'
+        type: string
+      price_threshold:
+        description: '💰 警報門檻金額 (TWD)'
+        required: false
+        default: '67000'
+        type: string
+      scan_flexible:
+        description: '🔍 同步掃描前後 ±1~2 天彈性比價矩陣'
+        required: false
+        default: true
+        type: boolean
 
 # 設定工作權限：允許提交代碼與發布 GitHub Pages
 permissions:
@@ -46,6 +67,10 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          OVERRIDE_DEP_DATE: ${{ inputs.departure_date }}
+          OVERRIDE_RET_DATE: ${{ inputs.return_date }}
+          OVERRIDE_THRESHOLD: ${{ inputs.price_threshold }}
+          OVERRIDE_FLEXIBLE: ${{ inputs.scan_flexible }}
         run: |
           python flight_tracker.py
 
@@ -53,7 +78,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add price_history.csv price_history.xlsx dashboard.html index.html
+          git add config.json price_history.csv price_history.xlsx dashboard.html index.html
           git diff --staged --quiet || (git commit -m "🤖 雲端定時巡邏：更新機票歷史數據與網頁 [skip ci]" && git push)
 
       - name: 準備 GitHub Pages 靜態網站目錄
