@@ -10,7 +10,9 @@
       "長榮航空",
       "中華航空",
       "星宇航空"
-    ]
+    ],
+    "depart_date": "2026-12-15",
+    "return_date": "2027-01-10"
   },
   "flight_dates": {
     "base_target": {
