@@ -1,0 +1,46 @@
+{
+  "search_settings": {
+    "from_airport": "LAX",
+    "to_airport": "TPE",
+    "trip_type": "round-trip",
+    "seat_class": "economy",
+    "direct_only": true,
+    "currency": "TWD",
+    "target_airlines": [
+      "長榮航空",
+      "中華航空",
+      "星宇航空"
+    ]
+  },
+  "flight_dates": {
+    "base_target": {
+      "note": "===【1. 我的基準目標日期】您原本預計或希望出發的理想日期 ===",
+      "depart_date": "2026-12-15",
+      "return_date": "2027-01-10"
+    },
+    "flexible_scan": {
+      "note": "===【2. 前後彈性比價設定】自動比對前後 N 天，找出更划算的買點 ===",
+      "enabled": true,
+      "depart_flex_days": 1,
+      "return_flex_days": 1,
+      "description": "depart_flex_days=1 代表會額外比對 12/14 (前1天) 與 12/16 (後1天)；設為 2 則比對前後2天",
+      "min_savings_to_alert": 1500
+    }
+  },
+  "alert_settings": {
+    "price_alert_threshold": 67000,
+    "notify_on_price_drop": true,
+    "notify_if_flexible_cheaper": true,
+    "note": "notify_if_flexible_cheaper=true 代表只要前後彈性日期有更便宜的票，即使基準日沒降價，也會在 LINE 推播中特別標註！"
+  },
+  "line_settings": {
+    "enabled": true,
+    "channel_access_token": "",
+    "user_id": "",
+    "note": "雲端執行時由 GitHub Secrets (LINE_CHANNEL_ACCESS_TOKEN 與 LINE_USER_ID) 安全加密注入；本機執行時讀取 config.local.json。"
+  },
+  "schedule_settings": {
+    "auto_loop_interval_hours": 0,
+    "note": "0 代表由 GitHub Actions 每日定時雲端執行"
+  }
+}
